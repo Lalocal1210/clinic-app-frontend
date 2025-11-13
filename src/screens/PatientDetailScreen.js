@@ -6,7 +6,7 @@ import {
   ActivityIndicator, Alert, Button, Image 
 } from 'react-native';
 import apiClient from '../api/client';
-import { useAuth } from '../../App';
+import { useAuth } from '../context/AuthContext';
 import { useNavigation, useTheme } from '@react-navigation/native'; // ¡Importa useTheme!
 
 const PatientDetailScreen = ({ route }) => {

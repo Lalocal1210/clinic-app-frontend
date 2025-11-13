@@ -7,7 +7,9 @@ import {
 } from 'react-native';
 import apiClient from '../api/client';
 import { useNavigation, useTheme } from '@react-navigation/native';
-import { useAuth } from '../context/AuthContext';
+
+// --- ¡IMPORTACIÓN CORREGIDA! (Arregla el Require Cycle) ---
+import { useAuth } from '../context/AuthContext'; 
 
 // Importamos el selector de fecha y hora
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -18,29 +20,34 @@ const AppointmentCreateScreen = () => {
   const [doctors, setDoctors] = useState([]); // Lista de médicos
   const [selectedDoctor, setSelectedDoctor] = useState(null);
   const [date, setDate] = useState(new Date());
+  
+  // --- LÓGICA DE FECHA CORREGIDA ---
+  // Controlamos el estado del picker y el modo (fecha o hora)
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [datePickerMode, setDatePickerMode] = useState('date'); 
+  
   const [reason, setReason] = useState('');
-  const [isLoading, setIsLoading] = useState(true); // Para cargar médicos
+  const [isLoading, setIsLoading] = useState(true); // Cargando médicos
   const [isSubmitting, setIsSubmitting] = useState(false); // Para guardar cita
   
   const navigation = useNavigation();
   const { colors } = useTheme();
   const { signOut } = useAuth();
 
-  // 1. Carga la lista de médicos cuando la pantalla se abre
+  // 1. Carga la lista de médicos
   useEffect(() => {
     const fetchDoctors = async () => {
       setIsLoading(true);
       try {
         // Llama al endpoint público /users/doctors
         const response = await apiClient.get('/users/doctors'); 
+        
         setDoctors(response.data);
         if (response.data.length > 0) {
           setSelectedDoctor(response.data[0].id); // Selecciona el primero por defecto
         }
       } catch (error) {
         console.error("Error al cargar médicos:", error);
-        Alert.alert('Error', 'No se pudo cargar la lista de médicos.');
         if (error.response?.status === 401) signOut();
       } finally {
         setIsLoading(false);
@@ -49,13 +56,45 @@ const AppointmentCreateScreen = () => {
     fetchDoctors();
   }, [signOut]);
 
-  // 2. Lógica para manejar el selector de fecha
+  // 2. Lógica para manejar el selector de fecha (¡CORREGIDA PARA EL CRASH!)
   const onDateChange = (event, selectedDate) => {
-    const currentDate = selectedDate || date;
-    setShowDatePicker(Platform.OS === 'ios'); // En iOS se queda abierto
-    setDate(currentDate);
+    // Si el usuario presiona "Cancelar" o cierra el picker
+    if (event.type === 'dismissed') {
+      setShowDatePicker(false);
+      return;
+    }
+    
+    // Si el usuario presiona "Aceptar"
+    if (event.type === 'set' && selectedDate) {
+      const currentDate = selectedDate;
+      
+      // En Android, el flujo es en dos pasos: Fecha -> Hora
+      if (Platform.OS === 'android') {
+        // Si acabamos de seleccionar la FECHA
+        if (datePickerMode === 'date') {
+          setDate(currentDate); // Guarda la fecha
+          setDatePickerMode('time'); // Pasa al modo 'time'
+          setShowDatePicker(true); // Vuelve a mostrar el picker (ahora como reloj)
+        } 
+        // Si acabamos de seleccionar la HORA
+        else {
+          setDate(currentDate); // Guarda la hora final
+          setShowDatePicker(false); // Oculta el picker (flujo terminado)
+          setDatePickerMode('date'); // Resetea al modo 'date' para la próxima vez
+        }
+      } else {
+        // En iOS, el picker 'datetime' lo hace todo de una vez
+        setDate(currentDate);
+      }
+    }
   };
 
+  // Función auxiliar para mostrar el picker en Android
+  const showDateTimePicker = () => {
+    setDatePickerMode('date'); // Siempre empezamos por la fecha
+    setShowDatePicker(true);
+  };
+  
   // 3. Lógica para guardar la cita
   const handleCreateAppointment = async () => {
     if (!selectedDoctor || !reason) {
@@ -64,35 +103,27 @@ const AppointmentCreateScreen = () => {
     }
     
     setIsSubmitting(true);
-
     try {
       const appointmentData = {
-        appointment_date: date.toISOString(), // Envía la fecha en formato ISO
+        appointment_date: date.toISOString(), 
         reason: reason,
         doctor_id: selectedDoctor,
       };
-
-      // 4. Llama al endpoint POST /appointments/
       await apiClient.post('/appointments/', appointmentData);
-
       Alert.alert(
         'Cita Creada',
-        'Tu cita ha sido registrada como "pendiente". El consultorio la confirmará pronto.'
+        'Tu cita ha sido registrada como "pendiente".'
       );
-      
-      // 5. Regresa a la pantalla anterior (Mis Citas)
       navigation.goBack(); 
-
     } catch (error) {
       console.error(error.response?.data || error.message);
-      const errorMsg = error.response?.data?.detail || 'No se pudo crear la cita.';
-      Alert.alert('Error', errorMsg);
+      Alert.alert('Error', error.response?.data?.detail || 'No se pudo crear la cita.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  if (isLoading) {
+  if (isLoading && doctors.length === 0) {
     return (
       <View style={[styles.centered, { backgroundColor: colors.background }]}>
         <ActivityIndicator size="large" color={colors.primary} />
@@ -104,7 +135,8 @@ const AppointmentCreateScreen = () => {
   return (
     <ScrollView 
       style={[styles.container, { backgroundColor: colors.background }]}
-      keyboardShouldPersistTaps="handled" // Permite tocar botones mientras el teclado está abierto
+      // --- ¡ESTA ES LA LÍNEA CORREGIDA PARA EL BOTÓN! ---
+      keyboardShouldPersistTaps="always" 
     >
       <Text style={[styles.title, { color: colors.text }]}>Agendar Nueva Cita</Text>
       
@@ -125,26 +157,27 @@ const AppointmentCreateScreen = () => {
 
       {/* Selector de Fecha y Hora */}
       <Text style={[styles.label, { color: colors.text }]}>Fecha y Hora</Text>
-      
-      {/* Muestra el selector de fecha/hora de forma diferente en iOS vs Android */}
       {Platform.OS === 'ios' ? (
         <DateTimePicker
           testID="dateTimePicker"
           value={date}
           mode="datetime"
           is24Hour={true}
-          display="spinner" // Spinner nativo de iOS
+          display="spinner"
           onChange={onDateChange}
-          textColor={colors.text} // Para el modo oscuro en iOS
+          textColor={colors.text}
         />
       ) : (
         <>
-          <Button onPress={() => setShowDatePicker(true)} title="Seleccionar Fecha y Hora" />
+          <View style={{ marginBottom: 10 }}>
+            {/* Este botón inicia el flujo de Fecha -> Hora */}
+            <Button onPress={showDateTimePicker} title="Seleccionar Fecha y Hora" />
+          </View>
           {showDatePicker && (
             <DateTimePicker
               testID="dateTimePicker"
               value={date}
-              mode="datetime"
+              mode={datePickerMode} // 'date' o 'time'
               is24Hour={true}
               display="default"
               onChange={onDateChange}
@@ -159,7 +192,11 @@ const AppointmentCreateScreen = () => {
       {/* Motivo de la Cita */}
       <Text style={[styles.label, { color: colors.text }]}>Motivo de la Cita</Text>
       <TextInput
-        style={[styles.input, styles.textArea, { backgroundColor: colors.card, color: colors.text, borderColor: colors.border }]}
+        style={[
+          styles.input, 
+          styles.textArea, 
+          { backgroundColor: colors.card, color: colors.text, borderColor: colors.border }
+        ]}
         placeholder="Ej. Dolor de cabeza, revisión general..."
         placeholderTextColor="#999"
         value={reason}

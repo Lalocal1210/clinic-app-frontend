@@ -1,8 +1,7 @@
 // --- App.js ---
 
-import React, { createContext, useContext, useMemo, useReducer, useEffect } from 'react';
-import { ActivityIndicator, View, Text, StyleSheet, Appearance } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import React from 'react';
+import { ActivityIndicator, View, Text, StyleSheet } from 'react-native';
 import { 
   NavigationContainer, 
   DefaultTheme, // Tema por defecto (claro)
@@ -10,8 +9,11 @@ import {
 } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 
-// --- 1. Importa todas tus pantallas ---
-// (Asegúrate de que todos estos archivos existan en src/screens/)
+// 1. Importa el NUEVO Proveedor y el Hook
+// (Asegúrate de haber creado 'src/context/AuthContext.js')
+import { AuthProvider, useAuth } from './src/context/AuthContext';
+
+// 2. Importa todas tus pantallas
 import LoginScreen from './src/screens/LoginScreen';
 import RegisterScreen from './src/screens/RegisterScreen';
 import DashboardScreen from './src/screens/DashboardScreen';
@@ -19,13 +21,13 @@ import PatientListScreen from './src/screens/PatientListScreen';
 import PatientDetailScreen from './src/screens/PatientDetailScreen';
 import MyAppointmentsScreen from './src/screens/MyAppointmentsScreen';
 import MyAccountScreen from './src/screens/MyAccountScreen';
-import PatientCreateScreen from './src/screens/PatientCreateScreen'; // La pantalla de formulario
+import PatientCreateScreen from './src/screens/PatientCreateScreen';
+import AppointmentCreateScreen from './src/screens/AppointmentCreateScreen';
+import UserListScreen from './src/screens/UserListScreen'; // Pantalla de Admin
 
-// --- 2. Contexto de Autenticación (ahora también maneja el tema) ---
-const AuthContext = createContext();
-
-// --- 3. Stacks de Navegación ---
 const Stack = createStackNavigator();
+
+// 3. Stacks de Navegación
 
 // Stack para usuarios NO autenticados
 const AuthStack = () => (
@@ -38,103 +40,30 @@ const AuthStack = () => (
 // Stack para usuarios AUTENTICADOS
 const AppStack = () => (
   <Stack.Navigator>
-    <Stack.Screen 
-      name="Dashboard" 
-      component={DashboardScreen} 
-      options={{ title: 'Mi Clínica' }}
-    />
+    <Stack.Screen name="Dashboard" component={DashboardScreen} options={{ title: 'Mi Clínica' }}/>
+    
     {/* Pantallas de Médico */}
-    <Stack.Screen 
-      name="PatientList" 
-      component={PatientListScreen} 
-      options={{ title: 'Pacientes' }}
-    /> 
-    <Stack.Screen 
-      name="PatientDetail" 
-      component={PatientDetailScreen} 
-      options={{ title: 'Ficha del Paciente' }}
-    /> 
-    <Stack.Screen 
-      name="PatientCreate" 
-      component={PatientCreateScreen}
-      options={{ title: 'Nuevo Paciente' }}
-    /> 
+    <Stack.Screen name="PatientList" component={PatientListScreen} options={{ title: 'Pacientes' }}/> 
+    <Stack.Screen name="PatientDetail" component={PatientDetailScreen} options={{ title: 'Ficha del Paciente' }}/> 
+    <Stack.Screen name="PatientCreate" component={PatientCreateScreen} options={{ title: 'Nuevo Paciente' }}/> 
+
     {/* Pantallas de Paciente */}
-    <Stack.Screen 
-      name="MyAppointments" 
-      component={MyAppointmentsScreen} 
-      options={{ title: 'Mis Citas' }}
-    /> 
-    <Stack.Screen 
-      name="MyAccount" 
-      component={MyAccountScreen}     
-      options={{ title: 'Mi Cuenta' }}
-    /> 
+    <Stack.Screen name="MyAppointments" component={MyAppointmentsScreen} options={{ title: 'Mis Citas' }}/> 
+    <Stack.Screen name="MyAccount" component={MyAccountScreen} options={{ title: 'Mi Cuenta' }}/>
+    <Stack.Screen name="AppointmentCreate" component={AppointmentCreateScreen} options={{ title: 'Agendar Cita' }}/> 
+
+    {/* Pantalla de Admin */}
+    <Stack.Screen name="UserList" component={UserListScreen} options={{ title: 'Gestionar Usuarios' }}/> 
   </Stack.Navigator>
 );
 
-// --- 4. Componente Principal App ---
-export default function App() {
-  
-  // Reducer para manejar el estado global (token y tema)
-  const [authState, dispatch] = useReducer(
-    (prevState, action) => {
-      switch (action.type) {
-        case 'RESTORE_TOKEN':
-          return { ...prevState, userToken: action.token, isLoading: false };
-        case 'SIGN_IN':
-          return { ...prevState, userToken: action.token };
-        case 'SIGN_OUT':
-          return { ...prevState, userToken: null };
-        case 'SET_THEME': // Nueva acción para el tema
-          return { ...prevState, theme: action.theme };
-      }
-    },
-    { 
-      isLoading: true, 
-      userToken: null,
-      theme: Appearance.getColorScheme() || 'light' // Tema inicial basado en el teléfono
-    }
-  );
+// 4. Componente de Navegación (el "cerebro" que decide)
+const RootNavigator = () => {
+  // 5. Usa el hook que viene del AuthContext
+  const { isLoading, userToken, theme } = useAuth();
 
-  // Efecto para revisar el token al iniciar la app
-  useEffect(() => {
-    const bootstrapAsync = async () => {
-      let userToken;
-      try {
-        userToken = await AsyncStorage.getItem('userToken');
-      } catch (e) { console.error('Error al restaurar el token:', e); }
-      dispatch({ type: 'RESTORE_TOKEN', token: userToken });
-    };
-    bootstrapAsync();
-  }, []);
-
-  // Funciones que se compartirán a través del contexto
-  const authContext = useMemo(
-    () => ({
-      signIn: async (token) => {
-        try {
-          await AsyncStorage.setItem('userToken', token);
-          dispatch({ type: 'SIGN_IN', token: token });
-        } catch (e) { console.error('Error al guardar el token:', e); }
-      },
-      signOut: async () => {
-        try {
-          await AsyncStorage.removeItem('userToken');
-          dispatch({ type: 'SIGN_OUT' });
-        } catch (e) { console.error('Error al eliminar el token:', e); }
-      },
-      // Funciones del Tema
-      theme: authState.theme,
-      setTheme: (theme) => {
-        dispatch({ type: 'SET_THEME', theme: theme });
-      }
-    }),
-    [authState.theme] // El contexto se actualiza si el tema cambia
-  );
-
-  // Si está cargando, muestra un indicador
-  if (authState.isLoading) {
+  // Muestra la pantalla de carga mientras se restaura el token
+  if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#007AFF" />
@@ -143,31 +72,32 @@ export default function App() {
     );
   }
 
-  // Renderiza el navegador apropiado (con el tema correcto)
+  // Renderiza el navegador (con el tema correcto)
   return (
-    <AuthContext.Provider value={authContext}>
-      <NavigationContainer theme={authState.theme === 'dark' ? DarkTheme : DefaultTheme}>
-        {authState.userToken == null ? (
-          <AuthStack /> // No hay token, muestra Login
-        ) : (
-          <AppStack /> // Hay token, muestra la App
-        )}
-      </NavigationContainer>
-    </AuthContext.Provider>
+    <NavigationContainer theme={theme === 'dark' ? DarkTheme : DefaultTheme}>
+      {userToken == null ? (
+        <AuthStack /> // No hay token, muestra Login
+      ) : (
+        <AppStack /> // Hay token, muestra la App
+      )}
+    </NavigationContainer>
   );
 }
 
-// --- 5. Hook Personalizado useAuth ---
-// Para que las pantallas accedan a `signIn`, `signOut`, `theme` y `setTheme`
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth debe ser usado dentro de un AuthProvider');
-  }
-  return context;
-};
+// 5. Componente Principal App
+// (Ahora solo es un "envoltorio" (wrapper)
+export default function App() {
+  return (
+    // Envuelve toda la app en el AuthProvider
+    <AuthProvider>
+      <RootNavigator />
+    </AuthProvider>
+  );
+}
 
-// --- 6. Estilos ---
+// (¡IMPORTANTE! El hook 'useAuth' ya NO se exporta desde aquí)
+
+// --- Estilos ---
 const styles = StyleSheet.create({
   loadingContainer: {
     flex: 1,

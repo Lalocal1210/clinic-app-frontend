@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { View, TextInput, Button, Alert, StyleSheet, Text, ActivityIndicator } from 'react-native';
 import apiClient from '../api/client'; // Importa tu cliente Axios
 import { useNavigation } from '@react-navigation/native'; // Para ir a Registro
-import { useAuth } from '../../App'; // ¡Importa el hook de Autenticación!
+import { useAuth } from '../context/AuthContext'; // ¡Importa el hook de Autenticación!
 
 const LoginScreen = () => {
   const [email, setEmail] = useState(''); // 'username' para el form

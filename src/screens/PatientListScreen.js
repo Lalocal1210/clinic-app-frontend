@@ -6,8 +6,8 @@ import {
   ActivityIndicator, TouchableOpacity, Alert, Button 
 } from 'react-native';
 import apiClient from '../api/client';
-import { useAuth } from '../../App';
-import { useNavigation, useIsFocused, useTheme } from '@react-navigation/native'; // Importa useTheme
+import { useAuth } from '../context/AuthContext';
+import { useNavigation, useIsFocused, useTheme } from '@react-navigation/native';
 
 const PatientListScreen = () => {
   const [patients, setPatients] = useState([]);
@@ -17,25 +17,26 @@ const PatientListScreen = () => {
   const isFocused = useIsFocused(); // Hook para saber si la pantalla está visible
   const { colors } = useTheme(); // ¡Obtiene los colores del tema!
 
-  // --- 1. Añadimos un botón "+" a la barra de navegación ---
+  // --- 1. Añadimos el botón "+" a la barra de navegación ---
   useLayoutEffect(() => {
     navigation.setOptions({
       headerRight: () => (
         <Button 
           onPress={() => navigation.navigate('PatientCreate')} 
-          title="+" // Puedes usar un ícono aquí más adelante
-          color={colors.primary} // Usa el color primario del tema
+          title="+" // Puedes cambiar esto por un ícono si prefieres
+          color={colors.primary} 
         />
       ),
     });
-  }, [navigation, colors.primary]); // Se actualiza si el color del tema cambia
+  }, [navigation, colors.primary]); 
   
   // --- 2. Función para cargar los pacientes ---
   const fetchPatients = async () => {
     setIsLoading(true);
     try {
+      // Llama al endpoint protegido de pacientes
       const response = await apiClient.get('/patients/');
-      setPatients(response.data); // Guarda la lista de pacientes
+      setPatients(response.data); 
     } catch (error) {
       console.error('Error fetching patients:', error);
       if (error.response?.status === 401 || error.response?.status === 403) {
@@ -49,54 +50,71 @@ const PatientListScreen = () => {
     }
   };
 
-  // --- 3. useEffect se ejecuta al cargar y CADA VEZ que volvemos a la pantalla ---
+  // --- 3. Recargar al enfocar ---
   useEffect(() => {
     if (isFocused) {
       fetchPatients();
     }
-  }, [isFocused]); // Dependencia clave
+  }, [isFocused]); 
 
-  // --- 4. Muestra "Cargando..." ---
+  // --- 4. Loading ---
   if (isLoading) {
     return (
       <View style={[styles.centered, { backgroundColor: colors.background }]}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={{ color: colors.text }}>Cargando pacientes...</Text>
+        <Text style={{ color: colors.text, marginTop: 10 }}>Cargando pacientes...</Text>
       </View>
     );
   }
 
-  // --- 5. Componente para renderizar cada item de la lista ---
-  const renderPatientItem = ({ item }) => (
-    <TouchableOpacity 
-      // ¡Estilos dinámicos!
-      style={[styles.itemContainer, { backgroundColor: colors.card }]} 
-      // Al tocar, navega a 'PatientDetail' y pasa el 'patientId'
-      onPress={() => navigation.navigate('PatientDetail', { patientId: item.id })}
-    >
-      <View>
-        <Text style={[styles.itemTitle, { color: colors.text }]}>{item.full_name}</Text>
-        <Text style={[styles.itemSubtitle, { color: colors.text, opacity: 0.7 }]}>{item.email || 'Sin email'}</Text>
-      </View>
-      <Text style={[styles.itemArrow, { color: colors.text, opacity: 0.3 }]}>&gt;</Text>
-    </TouchableOpacity>
-  );
+  // --- 5. Renderizado de cada paciente ---
+  const renderPatientItem = ({ item }) => {
+    // Obtenemos las últimas 2 citas para el resumen (si existen)
+    // (La API ya devuelve 'appointments' dentro del objeto Patient)
+    const lastAppointments = item.appointments ? item.appointments.slice(0, 2) : [];
 
-  // --- 6. Muestra la lista de pacientes ---
+    return (
+      <TouchableOpacity 
+        style={[styles.itemContainer, { backgroundColor: colors.card }]} 
+        onPress={() => navigation.navigate('PatientDetail', { patientId: item.id })}
+      >
+        <View style={{ flex: 1 }}>
+          {/* Nombre y Email */}
+          <Text style={[styles.itemTitle, { color: colors.text }]}>{item.full_name}</Text>
+          <Text style={[styles.itemSubtitle, { color: colors.text, opacity: 0.7 }]}>{item.email || 'Sin email'}</Text>
+          
+          {/* --- Resumen de Historial de Citas --- */}
+          {lastAppointments.length > 0 && (
+            <View style={styles.historyContainer}>
+              <Text style={[styles.historyTitle, { color: colors.primary }]}>Últimas citas:</Text>
+              {lastAppointments.map(appt => (
+                <Text key={appt.id} style={[styles.historyText, { color: colors.text }]}>
+                  • {new Date(appt.appointment_date).toLocaleDateString()} - {appt.reason}
+                </Text>
+              ))}
+            </View>
+          )}
+          {/* ----------------------------------- */}
+          
+        </View>
+        <Text style={[styles.itemArrow, { color: colors.text, opacity: 0.3 }]}>&gt;</Text>
+      </TouchableOpacity>
+    );
+  };
+
+  // --- 6. Lista Principal ---
   return (
     <FlatList
       data={patients}
       renderItem={renderPatientItem}
       keyExtractor={(item) => item.id.toString()}
-      // ¡Estilo dinámico!
       style={[styles.container, { backgroundColor: colors.background }]}
-      contentContainerStyle={{ paddingTop: 10 }} // Espacio al inicio
-      ListEmptyComponent={ // Se muestra si la lista está vacía
+      contentContainerStyle={{ paddingTop: 10, paddingBottom: 20 }}
+      ListEmptyComponent={
         <Text style={[styles.emptyText, { color: colors.text }]}>
           No hay pacientes registrados.
         </Text>
       }
-      // Habilitar "pull to refresh"
       refreshing={isLoading}
       onRefresh={fetchPatients}
     />
@@ -117,11 +135,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 20,
+    padding: 15,
     marginHorizontal: 10,
-    marginVertical: 5,
-    borderRadius: 8,
-    // Sombra para Android e iOS
+    marginVertical: 6,
+    borderRadius: 10,
+    // Sombra sutil
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
@@ -130,18 +148,39 @@ const styles = StyleSheet.create({
   },
   itemTitle: {
     fontSize: 18,
-    fontWeight: '500',
+    fontWeight: 'bold',
+    marginBottom: 4,
   },
   itemSubtitle: {
     fontSize: 14,
+    marginBottom: 8,
   },
   itemArrow: {
-    fontSize: 20,
+    fontSize: 24,
+    marginLeft: 10,
+  },
+  // Estilos para el historial
+  historyContainer: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#eee', // Podrías usar colors.border si lo tuvieras en el theme
+  },
+  historyTitle: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginBottom: 2,
+  },
+  historyText: {
+    fontSize: 12,
+    opacity: 0.8,
+    marginLeft: 5,
   },
   emptyText: {
     textAlign: 'center',
     marginTop: 50,
     fontSize: 16,
+    opacity: 0.6,
   }
 });
 
