@@ -1,120 +1,134 @@
 // --- src/screens/AppointmentCreateScreen.js ---
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   View, Text, TextInput, Button, 
-  StyleSheet, ScrollView, Alert, ActivityIndicator, Platform 
+  StyleSheet, ScrollView, Alert, ActivityIndicator, Platform,
+  FlatList, TouchableOpacity // ¡Importamos FlatList y TouchableOpacity para los slots!
 } from 'react-native';
 import apiClient from '../api/client';
-import { useNavigation, useTheme } from '@react-navigation/native';
-
-// --- ¡IMPORTACIÓN CORREGIDA! (Arregla el Require Cycle) ---
-import { useAuth } from '../context/AuthContext'; 
-
-// Importamos el selector de fecha y hora
+import { useNavigation, useTheme, useRoute } from '@react-navigation/native';
+import { useAuth } from '../context/AuthContext'; // ¡Importación Corregida!
 import DateTimePicker from '@react-native-community/datetimepicker';
-// Importamos el selector (Picker)
 import { Picker } from '@react-native-picker/picker';
 
 const AppointmentCreateScreen = () => {
-  const [doctors, setDoctors] = useState([]); // Lista de médicos
-  const [selectedDoctor, setSelectedDoctor] = useState(null);
-  const [date, setDate] = useState(new Date());
-  
-  // --- LÓGICA DE FECHA CORREGIDA ---
-  // Controlamos el estado del picker y el modo (fecha o hora)
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [datePickerMode, setDatePickerMode] = useState('date'); 
-  
-  const [reason, setReason] = useState('');
-  const [isLoading, setIsLoading] = useState(true); // Cargando médicos
-  const [isSubmitting, setIsSubmitting] = useState(false); // Para guardar cita
-  
   const navigation = useNavigation();
   const { colors } = useTheme();
   const { signOut } = useAuth();
+  
+  // Para la lógica de "Volver a Agendar"
+  const route = useRoute();
+  const { defaultDoctorId, defaultReason } = route.params || {};
 
-  // 1. Carga la lista de médicos
+  // --- Estados del Formulario ---
+  const [doctors, setDoctors] = useState([]); 
+  const [selectedDoctor, setSelectedDoctor] = useState(defaultDoctorId || null);
+  const [date, setDate] = useState(new Date()); // La fecha seleccionada
+  const [reason, setReason] = useState(defaultReason || '');
+  
+  // --- ¡NUEVOS ESTADOS PARA SLOTS! ---
+  const [slots, setSlots] = useState([]); // Los slots que vienen de la API
+  const [selectedSlot, setSelectedSlot] = useState(null); // El slot (string) que elija
+  const [isLoadingSlots, setIsLoadingSlots] = useState(false);
+
+  // Estados de UI
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [isLoadingDoctors, setIsLoadingDoctors] = useState(true); 
+  const [isSubmitting, setIsSubmitting] = useState(false); 
+  
+  // 1. Carga la lista de médicos (al inicio)
   useEffect(() => {
     const fetchDoctors = async () => {
-      setIsLoading(true);
+      setIsLoadingDoctors(true);
       try {
-        // Llama al endpoint público /users/doctors
         const response = await apiClient.get('/users/doctors'); 
-        
         setDoctors(response.data);
-        if (response.data.length > 0) {
-          setSelectedDoctor(response.data[0].id); // Selecciona el primero por defecto
+        if (!defaultDoctorId && response.data.length > 0) {
+          setSelectedDoctor(response.data[0].id);
         }
       } catch (error) {
         console.error("Error al cargar médicos:", error);
         if (error.response?.status === 401) signOut();
       } finally {
-        setIsLoading(false);
+        setIsLoadingDoctors(false);
       }
     };
     fetchDoctors();
-  }, [signOut]);
+  }, [signOut, defaultDoctorId]);
 
-  // 2. Lógica para manejar el selector de fecha (¡CORREGIDA PARA EL CRASH!)
-  const onDateChange = (event, selectedDate) => {
-    // Si el usuario presiona "Cancelar" o cierra el picker
-    if (event.type === 'dismissed') {
-      setShowDatePicker(false);
-      return;
-    }
+  // 2. ¡NUEVO! Carga los SLOTS (horarios) cada vez que cambia el doctor o la fecha
+  const fetchSlots = useCallback(async (doctorId, queryDate) => {
+    if (!doctorId) return;
     
-    // Si el usuario presiona "Aceptar"
-    if (event.type === 'set' && selectedDate) {
-      const currentDate = selectedDate;
-      
-      // En Android, el flujo es en dos pasos: Fecha -> Hora
-      if (Platform.OS === 'android') {
-        // Si acabamos de seleccionar la FECHA
-        if (datePickerMode === 'date') {
-          setDate(currentDate); // Guarda la fecha
-          setDatePickerMode('time'); // Pasa al modo 'time'
-          setShowDatePicker(true); // Vuelve a mostrar el picker (ahora como reloj)
-        } 
-        // Si acabamos de seleccionar la HORA
-        else {
-          setDate(currentDate); // Guarda la hora final
-          setShowDatePicker(false); // Oculta el picker (flujo terminado)
-          setDatePickerMode('date'); // Resetea al modo 'date' para la próxima vez
+    setIsLoadingSlots(true);
+    setSlots([]); // Limpia los slots anteriores
+    setSelectedSlot(null); // Deselecciona el slot
+    
+    // Formatea la fecha a YYYY-MM-DD
+    const dateString = queryDate.toISOString().split('T')[0];
+    
+    try {
+      const response = await apiClient.get('/availability/slots', {
+        params: {
+          doctor_id: doctorId,
+          query_date: dateString
         }
-      } else {
-        // En iOS, el picker 'datetime' lo hace todo de una vez
-        setDate(currentDate);
-      }
+      });
+      // Filtramos solo los que están disponibles
+      setSlots(response.data.filter(slot => slot.is_available));
+    } catch (error) {
+      console.error("Error al cargar slots:", error);
+      Alert.alert('Error', 'No se pudo cargar la disponibilidad horaria.');
+    } finally {
+      setIsLoadingSlots(false);
     }
-  };
+  }, []);
 
-  // Función auxiliar para mostrar el picker en Android
-  const showDateTimePicker = () => {
-    setDatePickerMode('date'); // Siempre empezamos por la fecha
-    setShowDatePicker(true);
+  // Efecto que llama a fetchSlots
+  useEffect(() => {
+    fetchSlots(selectedDoctor, date);
+  }, [selectedDoctor, date, fetchSlots]); // Se re-ejecuta si cambia el doctor o la fecha
+
+  // 3. Lógica del Calendario (simplificada a solo FECHA)
+  const onDateChange = (event, selectedDate) => {
+    if (Platform.OS === 'android') {
+      setShowDatePicker(false); // Cierra el picker
+    }
+    if (event.type === 'set' && selectedDate) {
+      setDate(selectedDate); // Actualiza la fecha
+    }
   };
   
-  // 3. Lógica para guardar la cita
+  // 4. Lógica para guardar la cita (¡ACTUALIZADA!)
   const handleCreateAppointment = async () => {
-    if (!selectedDoctor || !reason) {
-      Alert.alert('Error', 'Por favor, selecciona un médico y escribe un motivo.');
+    if (!selectedDoctor || !reason || !selectedSlot) { // ¡Ahora valida el slot!
+      Alert.alert('Error', 'Por favor, selecciona un médico, un horario disponible y escribe un motivo.');
       return;
     }
     
     setIsSubmitting(true);
     try {
+      // --- ¡LÓGICA CLAVE! ---
+      // Combina la fecha (YYYY-MM-DD) con el slot (HH:MM)
+      const [hour, minute] = selectedSlot.split(':').map(Number);
+      const finalDateTime = new Date(date);
+      // Setea la hora y minuto LOCALES (importante)
+      finalDateTime.setHours(hour, minute, 0, 0); 
+
       const appointmentData = {
-        appointment_date: date.toISOString(), 
+        appointment_date: finalDateTime.toISOString(), // Envía la fecha/hora combinada en UTC
         reason: reason,
         doctor_id: selectedDoctor,
       };
+
       await apiClient.post('/appointments/', appointmentData);
       Alert.alert(
         'Cita Creada',
         'Tu cita ha sido registrada como "pendiente".'
       );
       navigation.goBack(); 
+
     } catch (error) {
       console.error(error.response?.data || error.message);
       Alert.alert('Error', error.response?.data?.detail || 'No se pudo crear la cita.');
@@ -123,7 +137,28 @@ const AppointmentCreateScreen = () => {
     }
   };
 
-  if (isLoading && doctors.length === 0) {
+  // 5. Renderizado de cada botón de "Slot"
+  const renderSlot = ({ item }) => {
+    const isSelected = selectedSlot === item.time;
+    return (
+      <TouchableOpacity
+        style={[
+          styles.slotButton, 
+          { 
+            backgroundColor: isSelected ? colors.primary : colors.card,
+            borderColor: colors.border
+          }
+        ]}
+        onPress={() => setSelectedSlot(item.time)}
+      >
+        <Text style={{ color: isSelected ? 'white' : colors.text }}>
+          {item.time}
+        </Text>
+      </TouchableOpacity>
+    );
+  };
+
+  if (isLoadingDoctors) {
     return (
       <View style={[styles.centered, { backgroundColor: colors.background }]}>
         <ActivityIndicator size="large" color={colors.primary} />
@@ -135,13 +170,12 @@ const AppointmentCreateScreen = () => {
   return (
     <ScrollView 
       style={[styles.container, { backgroundColor: colors.background }]}
-      // --- ¡ESTA ES LA LÍNEA CORREGIDA PARA EL BOTÓN! ---
       keyboardShouldPersistTaps="always" 
     >
       <Text style={[styles.title, { color: colors.text }]}>Agendar Nueva Cita</Text>
       
-      {/* Selector de Médico */}
-      <Text style={[styles.label, { color: colors.text }]}>Médico</Text>
+      {/* Paso 1: Selector de Médico */}
+      <Text style={[styles.label, { color: colors.text }]}>Paso 1: Selecciona un Médico</Text>
       <View style={[styles.pickerContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
         <Picker
           selectedValue={selectedDoctor}
@@ -155,56 +189,56 @@ const AppointmentCreateScreen = () => {
         </Picker>
       </View>
 
-      {/* Selector de Fecha y Hora */}
-      <Text style={[styles.label, { color: colors.text }]}>Fecha y Hora</Text>
-      {Platform.OS === 'ios' ? (
+      {/* Paso 2: Selector de Fecha (Calendario) */}
+      <Text style={[styles.label, { color: colors.text }]}>Paso 2: Selecciona una Fecha</Text>
+      {Platform.OS === 'android' && (
+         <View style={{ marginBottom: 10 }}>
+            <Button onPress={() => setShowDatePicker(true)} title={`Cambiar Fecha: ${date.toLocaleDateString()}`} />
+         </View>
+      )}
+      {(showDatePicker || Platform.OS === 'ios') && (
         <DateTimePicker
           testID="dateTimePicker"
           value={date}
-          mode="datetime"
-          is24Hour={true}
-          display="spinner"
+          mode="date" // ¡Modo solo FECHA!
+          display={Platform.OS === 'ios' ? "inline" : "default"}
           onChange={onDateChange}
           textColor={colors.text}
+          minimumDate={new Date()} // No se puede agendar en el pasado
         />
-      ) : (
-        <>
-          <View style={{ marginBottom: 10 }}>
-            {/* Este botón inicia el flujo de Fecha -> Hora */}
-            <Button onPress={showDateTimePicker} title="Seleccionar Fecha y Hora" />
-          </View>
-          {showDatePicker && (
-            <DateTimePicker
-              testID="dateTimePicker"
-              value={date}
-              mode={datePickerMode} // 'date' o 'time'
-              is24Hour={true}
-              display="default"
-              onChange={onDateChange}
-            />
-          )}
-        </>
       )}
-      <Text style={[styles.dateText, { color: colors.text }]}>
-        Seleccionado: {date.toLocaleString()}
-      </Text>
 
-      {/* Motivo de la Cita */}
-      <Text style={[styles.label, { color: colors.text }]}>Motivo de la Cita</Text>
+      {/* Paso 3: Selector de Hora (Slots) */}
+      <Text style={[styles.label, { color: colors.text, marginTop: 20 }]}>Paso 3: Selecciona un Horario</Text>
+      {isLoadingSlots ? (
+        <ActivityIndicator size="small" color={colors.primary} />
+      ) : (
+        <FlatList
+          data={slots}
+          renderItem={renderSlot}
+          keyExtractor={(item) => item.time}
+          numColumns={3} // Muestra 3 slots por fila
+          columnWrapperStyle={{ justifyContent: 'space-around' }}
+          ListEmptyComponent={
+            <Text style={[styles.emptyText, { color: colors.text }]}>
+              No hay horarios disponibles para este día.
+            </Text>
+          }
+        />
+      )}
+
+      {/* Paso 4: Motivo de la Cita */}
+      <Text style={[styles.label, { color: colors.text, marginTop: 20 }]}>Paso 4: Motivo de la Cita</Text>
       <TextInput
-        style={[
-          styles.input, 
-          styles.textArea, 
-          { backgroundColor: colors.card, color: colors.text, borderColor: colors.border }
-        ]}
+        style={[styles.input, styles.textArea, { backgroundColor: colors.card, color: colors.text, borderColor: colors.border }]}
         placeholder="Ej. Dolor de cabeza, revisión general..."
         placeholderTextColor="#999"
         value={reason}
         onChangeText={setReason}
-        multiline={true}
-        numberOfLines={4}
+        multiline
       />
 
+      {/* Botón de Agendar */}
       <View style={styles.buttonContainer}>
         {isSubmitting ? (
           <ActivityIndicator size="large" color={colors.primary} />
@@ -221,55 +255,33 @@ const AppointmentCreateScreen = () => {
 
 // --- Estilos ---
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    padding: 20 
-  },
-  centered: { 
-    flex: 1, 
-    justifyContent: 'center', 
-    alignItems: 'center' 
-  },
-  title: { 
-    fontSize: 24, 
-    fontWeight: 'bold', 
-    marginBottom: 20,
-    textAlign: 'center'
-  },
-  label: { 
-    fontSize: 16, 
-    marginBottom: 8, 
-    marginLeft: 5,
-    fontWeight: '500'
-  },
+  container: { flex: 1, padding: 20 },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  title: { fontSize: 24, fontWeight: 'bold', marginBottom: 20, textAlign: 'center' },
+  label: { fontSize: 16, marginBottom: 8, marginLeft: 5, fontWeight: '500' },
   input: {
-    height: 50,
-    borderWidth: 1,
+    height: 50, borderWidth: 1, borderRadius: 8, paddingLeft: 15,
+    marginBottom: 20, fontSize: 16,
+  },
+  textArea: { height: 100, textAlignVertical: 'top', paddingTop: 15, },
+  pickerContainer: { borderWidth: 1, borderRadius: 8, marginBottom: 20, justifyContent: 'center' },
+  dateText: { fontSize: 16, textAlign: 'center', marginVertical: 15, fontWeight: '500' },
+  buttonContainer: { marginTop: 20, marginBottom: 50 },
+  // Estilos para los Slots
+  slotButton: {
+    padding: 12,
     borderRadius: 8,
-    paddingLeft: 15,
-    marginBottom: 20,
-    fontSize: 16,
-  },
-  textArea: {
-    height: 100,
-    textAlignVertical: 'top', // Para Android
-    paddingTop: 15,
-  },
-  pickerContainer: {
     borderWidth: 1,
-    borderRadius: 8,
-    marginBottom: 20,
-    justifyContent: 'center'
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '30%', // 3 columnas
+    margin: 5,
   },
-  dateText: {
-    fontSize: 16,
+  emptyText: {
     textAlign: 'center',
     marginVertical: 15,
-    fontWeight: '500'
-  },
-  buttonContainer: {
-    marginTop: 20,
-    marginBottom: 50,
+    fontSize: 14,
+    opacity: 0.7,
   }
 });
 

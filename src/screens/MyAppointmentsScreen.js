@@ -15,7 +15,7 @@ const MyAppointmentsScreen = () => {
   const [isLoading, setIsLoading] = useState(true);
   const { signOut } = useAuth();
   const { colors } = useTheme(); // Para el modo oscuro/claro
-  const isFocused = useIsFocused();
+  const isFocused = useIsFocused(); // Para recargar
   const navigation = useNavigation();
 
   // 1. Función para cargar las citas
@@ -43,9 +43,9 @@ const MyAppointmentsScreen = () => {
     if (isFocused) {
       fetchAppointments();
     }
-  }, [isFocused]); // Quitamos signOut
+  }, [isFocused]); // Dependencia clave
 
-  // 3. ¡NUEVO! Función para que el paciente cancele su cita
+  // 3. Función para que el paciente cancele su cita
   const handlePatientCancel = (appointmentId) => {
     Alert.alert(
       "Cancelar Cita",
@@ -70,7 +70,16 @@ const MyAppointmentsScreen = () => {
     );
   };
 
-  // 4. Muestra "Cargando..."
+  // 4. Lógica para Volver a Agendar (Opción 2)
+  const handleReschedule = (item) => {
+    // Navega al formulario de creación, pasando los datos antiguos
+    navigation.navigate('AppointmentCreate', {
+      defaultDoctorId: item.doctor.id,
+      defaultReason: item.reason
+    });
+  };
+
+  // 5. Muestra "Cargando..."
   if (isLoading) {
     return (
       <View style={[styles.centered, { backgroundColor: colors.background }]}>
@@ -80,17 +89,24 @@ const MyAppointmentsScreen = () => {
     );
   }
 
-  // 5. Componente para renderizar cada cita (¡ACTUALIZADO!)
+  // 6. Componente para renderizar cada cita
   const renderAppointmentItem = ({ item }) => {
+    
+    const isCancelled = item.status.name === 'cancelada';
+    
+    // Asigna colores de estado
     let statusColor = '#fca311'; // Pendiente (Naranja)
-    if (item.status.name === 'confirmada') {
-      statusColor = '#2a9d8f'; // Confirmada (Verde)
-    } else if (item.status.name === 'cancelada') {
-      statusColor = '#e63946'; // Cancelada (Rojo)
-    }
+    if (item.status.name === 'confirmada') statusColor = '#2a9d8f'; // Confirmada (Verde)
+    else if (isCancelled) statusColor = '#e63946'; // Cancelada (Rojo)
 
     return (
-      <View style={[styles.itemContainer, { backgroundColor: colors.card }]}>
+      <View style={[
+        styles.itemContainer, 
+        { 
+          backgroundColor: colors.card, 
+          borderColor: isCancelled ? '#e63946' : colors.card, // Borde rojo si está cancelada
+        }
+      ]}>
         <Text style={[styles.itemTitle, { color: colors.text }]}>{item.reason || 'Cita Médica'}</Text>
         <Text style={[styles.itemSubtitle, { color: colors.text }]}>
           Doctor: {item.doctor.full_name}
@@ -100,9 +116,9 @@ const MyAppointmentsScreen = () => {
         </Text>
         
         {/* Muestra el motivo de cancelación (Opción 3) */}
-        {item.status.name === 'cancelada' && item.cancellation_reason && (
+        {isCancelled && item.cancellation_reason && (
           <Text style={styles.cancelReason}>
-            Motivo de cancelación: {item.cancellation_reason}
+            Motivo: {item.cancellation_reason}
           </Text>
         )}
 
@@ -113,10 +129,11 @@ const MyAppointmentsScreen = () => {
 
         {/* Lógica de Botones (Opción 2) */}
         <View style={styles.buttonRow}>
-          {item.status.name === 'cancelada' && (
+          {isCancelled && (
             <Button 
               title="Volver a Agendar" 
-              onPress={() => navigation.navigate('AppointmentCreate')} 
+              onPress={() => handleReschedule(item)} 
+              color={colors.primary}
             />
           )}
           {item.status.name === 'pendiente' && (
@@ -131,7 +148,7 @@ const MyAppointmentsScreen = () => {
     );
   };
 
-  // 6. Muestra la lista de citas
+  // 7. Muestra la lista de citas
   return (
     <FlatList
       data={appointments}
@@ -181,6 +198,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 3,
     elevation: 2,
+    borderWidth: 2, // Grosor del borde
   },
   itemTitle: {
     fontSize: 18,
@@ -193,11 +211,11 @@ const styles = StyleSheet.create({
   },
   statusBadge: {
     position: 'absolute',
-    top: -1, // Esquina superior
-    right: -1, // Esquina superior
+    top: -1, 
+    right: -1, 
     paddingHorizontal: 10,
     paddingVertical: 3,
-    borderTopRightRadius: 10,
+    borderTopRightRadius: 8, // Ajustado al radio del contenedor
     borderBottomLeftRadius: 10,
   },
   statusText: {
@@ -205,7 +223,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
   },
-  cancelReason: {
+  cancelReason: { // Estilo para el motivo de cancelación
     fontSize: 14,
     fontStyle: 'italic',
     color: '#e63946',
@@ -213,6 +231,7 @@ const styles = StyleSheet.create({
     borderLeftWidth: 3,
     borderLeftColor: '#e63946',
     paddingLeft: 8,
+    marginTop: 5,
   },
   buttonRow: {
     marginTop: 10,

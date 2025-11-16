@@ -11,7 +11,7 @@ const YOUR_COMPUTER_IP = '192.168.100.15';
 // 1. Crea la instancia de Axios
 const apiClient = axios.create({
   // Apunta a tu servidor de FastAPI (que corre en el puerto 8000)
-  baseURL: ` https://8a6c4a5ec08c.ngrok-free.app`,
+  baseURL: ` https://3889e6aeeb21.ngrok-free.app`,
 });
 
 // 2. El "Interceptor" Mágico

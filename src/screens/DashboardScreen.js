@@ -4,9 +4,10 @@ import React, { useState, useEffect } from 'react';
 import { 
   View, Text, StyleSheet, ActivityIndicator, 
   Button, Alert, ScrollView, FlatList,
-  TouchableOpacity, Modal, TextInput 
+  TouchableOpacity, Modal, TextInput
 } from 'react-native';
 import apiClient from '../api/client';
+// ¡IMPORTACIÓN CORREGIDA!
 import { useAuth } from '../context/AuthContext'; 
 import { useNavigation, useTheme, useIsFocused } from '@react-navigation/native';
 
@@ -22,30 +23,30 @@ const DashboardScreen = () => {
   const [selectedAppointmentId, setSelectedAppointmentId] = useState(null);
   
   const navigation = useNavigation();
-  const { signOut } = useAuth();
-  const { colors } = useTheme(); 
-  const isFocused = useIsFocused();
+  const { signOut, userRole } = useAuth(); // Obtenemos el rol del contexto
+  const { colors } = useTheme(); // Para el modo oscuro/claro
+  const isFocused = useIsFocused(); // Para recargar
 
   // --- 1. Lógica de Carga de Datos ---
   const loadData = async () => {
     setIsLoading(true);
     try {
-      // 1. Obtenemos el perfil del usuario
+      // Siempre obtenemos el perfil del usuario
       const userResponse = await apiClient.get('/users/me');
       const currentUser = userResponse.data;
       setUser(currentUser);
 
-      // 2. Si es médico o admin, buscamos métricas Y citas
+      // Si es médico o admin, buscamos métricas Y citas
       if (currentUser.role.name === 'medico' || currentUser.role.name === 'admin') {
         
         const [metricsResponse, allAppointmentsResponse] = await Promise.all([
-          apiClient.get('/dashboard/'),
-          apiClient.get('/appointments/all')
+          apiClient.get('/dashboard/'),     // Las métricas
+          apiClient.get('/appointments/all') // TODAS las citas
         ]);
         
         setMetrics(metricsResponse.data);
         
-        // --- FILTRO IMPORTANTE ---
+        // --- FILTRO IMPORTANTE (CORREGIDO) ---
         // Filtramos por estado 'pendiente' Y que la cita pertenezca a ESTE doctor
         const pending = allAppointmentsResponse.data.filter(
           (app) => app.status.name === 'pendiente' && app.doctor.id === currentUser.id
@@ -59,7 +60,10 @@ const DashboardScreen = () => {
         Alert.alert('Error', 'Tu sesión ha expirado.');
         signOut();
       } else {
-        Alert.alert('Error', 'No se pudieron cargar los datos.');
+        // No mostramos alerta si solo fallan las métricas (ej. un paciente logueado)
+        if (userRole && userRole !== 'paciente') {
+            Alert.alert('Error', 'No se pudieron cargar los datos.');
+        }
       }
     } finally {
       setIsLoading(false);
@@ -71,11 +75,11 @@ const DashboardScreen = () => {
     if (isFocused) {
       loadData();
     }
-  }, [isFocused]);
+  }, [isFocused]); // Dependencia clave
 
   // --- 2. Lógica de Citas ---
   
-  // Confirmar Cita
+  // Función para Confirmar (simple)
   const handleConfirmAppointment = async (appointmentId) => {
     try {
       await apiClient.patch(
@@ -83,13 +87,13 @@ const DashboardScreen = () => {
         { status_id: 2 } // 2 = confirmada
       );
       Alert.alert('Éxito', 'Cita Confirmada correctamente.');
-      loadData(); // Recarga para quitarla de la lista
+      loadData(); // Recarga
     } catch (error) {
       Alert.alert('Error', 'No se pudo confirmar la cita.');
     }
   };
 
-  // Cancelar Cita
+  // Función para Cancelar (compleja, con motivo)
   const handleCancelAppointment = async () => {
     if (!cancellationReason) {
       Alert.alert('Error', 'Por favor, escribe un motivo para la cancelación.');
@@ -101,7 +105,7 @@ const DashboardScreen = () => {
         `/appointments/${selectedAppointmentId}/status`, 
         { 
           status_id: 4, // 4 = cancelada
-          cancellation_reason: cancellationReason 
+          cancellation_reason: cancellationReason // ¡Enviamos el motivo!
         }
       );
       
@@ -112,20 +116,23 @@ const DashboardScreen = () => {
       console.error(error.response?.data);
       Alert.alert('Error', 'No se pudo cancelar la cita.');
     } finally {
+      // Cerramos el modal
       setModalVisible(false);
       setCancellationReason('');
       setSelectedAppointmentId(null);
     }
   };
 
+  // Función que ABRE el modal
   const openCancelModal = (appointmentId) => {
     setSelectedAppointmentId(appointmentId);
     setModalVisible(true);
   };
   
+  // --- 3. Lógica de Logout ---
   const handleLogout = () => { signOut(); };
 
-  // --- 3. Componente de Cabecera (para el médico) ---
+  // --- 4. Componente de Cabecera (para el médico) ---
   const DoctorDashboardHeader = () => (
     <View style={styles.headerContainer}>
       <Text style={[styles.title, { color: colors.text }]}>Bienvenido,</Text>
@@ -147,20 +154,21 @@ const DashboardScreen = () => {
         </View>
       ) : <ActivityIndicator color={colors.primary} />}
       
-      {/* Botones de Navegación */}
+      {/* Botones de Navegación (CORREGIDOS PARA TABS) */}
       <View style={[styles.menuButton, { backgroundColor: colors.card }]}>
-        <Button title="Ver Lista de Pacientes" onPress={() => navigation.navigate('PatientList')} />
+        <Button title="Ver Lista de Pacientes" onPress={() => navigation.navigate('PacientesTab')} />
       </View>
       <View style={[styles.menuButton, { backgroundColor: colors.card, marginTop: 10 }]}>
-        <Button title="Mi Perfil y Configuración" onPress={() => navigation.navigate('MyAccount')} />
+        <Button title="Mi Perfil y Configuración" onPress={() => navigation.navigate('Mi CuentaTab')} />
       </View>
 
       {/* Botón de Admin (solo si es admin) */}
       {user && user.role.name === 'admin' && (
         <View style={[styles.menuButton, { backgroundColor: '#e63946', marginTop: 10 }]}>
+          {/* Navega al Stack de Cuenta, y luego a la pantalla UserList */}
           <Button 
             title="Gestionar Usuarios (Admin)" 
-            onPress={() => navigation.navigate('UserList')}
+            onPress={() => navigation.navigate('Mi CuentaTab', { screen: 'UserList' })}
             color="white"
           />
         </View>
@@ -172,7 +180,7 @@ const DashboardScreen = () => {
     </View>
   );
 
-  // --- 4. Menú para Pacientes ---
+  // --- Menú para Pacientes ---
   const PatientMenu = () => (
     <ScrollView style={[styles.container, { backgroundColor: colors.background, padding: 20 }]}>
       <Text style={[styles.title, { color: colors.text }]}>Bienvenido,</Text>
@@ -180,11 +188,13 @@ const DashboardScreen = () => {
       <Text style={[styles.roleLabel, { color: colors.primary }]}>Rol: {user ? user.role.name : '...'}</Text>
       
       <Text style={[styles.sectionTitle, { color: colors.text }]}>Mi Cuenta</Text>
+      
+      {/* Botones de Navegación (CORREGIDOS PARA TABS) */}
       <View style={[styles.menuButton, { backgroundColor: colors.card }]}>
-        <Button title="Ver Mis Citas" onPress={() => navigation.navigate('MyAppointments')} />
+        <Button title="Ver Mis Citas" onPress={() => navigation.navigate('Mis CitasTab')} />
       </View>
       <View style={[styles.menuButton, { backgroundColor: colors.card }]}>
-        <Button title="Mi Perfil y Configuración" onPress={() => navigation.navigate('MyAccount')} />
+        <Button title="Mi Perfil y Configuración" onPress={() => navigation.navigate('Mi CuentaTab')} />
       </View>
       
       <View style={{ marginTop: 40, marginBottom: 40 }}>
@@ -203,10 +213,12 @@ const DashboardScreen = () => {
     );
   }
 
+  // Si es Paciente, renderiza el Menú de Paciente
   if (!user || user.role.name === 'paciente') {
     return <PatientMenu />;
   }
   
+  // Si es Médico o Admin, renderiza el Menú del Doctor (FlatList)
   return (
     <>
       {/* Modal de Cancelación */}
@@ -278,33 +290,146 @@ const DashboardScreen = () => {
   );
 };
 
-// --- 6. Estilos ---
+// --- 6. Estilos (Completos) ---
 const styles = StyleSheet.create({
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  container: { flex: 1 },
-  headerContainer: { padding: 20 },
-  title: { fontSize: 24 },
-  username: { fontSize: 28, fontWeight: 'bold' },
-  roleLabel: { fontSize: 16, marginBottom: 25, fontStyle: 'italic' },
-  sectionTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 15 },
-  metricsContainer: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 30 },
-  metricBox: { paddingVertical: 20, paddingHorizontal: 10, borderRadius: 10, alignItems: 'center', flex: 1, marginHorizontal: 5, elevation: 3 },
-  metricValue: { fontSize: 32, fontWeight: 'bold' },
-  metricLabel: { fontSize: 14, textAlign: 'center', marginTop: 5 },
-  menuButton: { borderRadius: 8, marginBottom: 10, padding: 5, elevation: 2 },
-  itemContainer: { padding: 15, marginVertical: 8, marginHorizontal: 20, borderRadius: 10, elevation: 2 },
-  itemTitle: { fontSize: 16, fontWeight: 'bold' },
-  itemSubtitle: { fontSize: 14, marginTop: 5 },
-  buttonRow: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 15 },
-  actionButton: { paddingVertical: 8, paddingHorizontal: 15, borderRadius: 5, marginLeft: 10 },
-  confirmButton: { backgroundColor: '#2a9d8f' },
-  cancelButton: { backgroundColor: '#e76f51' },
-  buttonText: { color: 'white', fontWeight: 'bold' },
-  modalCenteredView: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)' },
-  modalView: { margin: 20, borderRadius: 20, padding: 35, alignItems: 'center', elevation: 5, width: '90%' },
-  modalText: { marginBottom: 15, textAlign: 'center', fontSize: 18, fontWeight: 'bold' },
-  modalInput: { width: '100%', height: 50, borderRadius: 8, padding: 10, marginBottom: 20 },
-  modalButtonRow: { flexDirection: 'row', justifyContent: 'space-around', width: '100%' }
+  centered: { 
+    flex: 1, 
+    justifyContent: 'center', 
+    alignItems: 'center' 
+  },
+  container: {
+    flex: 1,
+  },
+  headerContainer: { // Contenedor para la cabecera del médico
+    padding: 20,
+  },
+  title: {
+    fontSize: 24,
+  },
+  username: {
+    fontSize: 28,
+    fontWeight: 'bold',
+  },
+  roleLabel: {
+    fontSize: 16,
+    marginBottom: 25,
+    fontStyle: 'italic',
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 15,
+  },
+  metricsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 30,
+  },
+  metricBox: {
+    paddingVertical: 20,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    alignItems: 'center',
+    flex: 1,
+    marginHorizontal: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  metricValue: {
+    fontSize: 32,
+    fontWeight: 'bold',
+  },
+  metricLabel: {
+    fontSize: 14,
+    textAlign: 'center',
+    marginTop: 5,
+  },
+  menuButton: {
+    borderRadius: 8,
+    marginBottom: 10,
+    padding: 5,
+    elevation: 2,
+  },
+  itemContainer: { // Estilo para la lista de citas pendientes
+    padding: 15,
+    marginVertical: 8,
+    marginHorizontal: 20, // Alineado con el padding del header
+    borderRadius: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  itemTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  itemSubtitle: {
+    fontSize: 14,
+    marginTop: 5,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 15,
+  },
+  actionButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 15,
+    borderRadius: 5,
+    marginLeft: 10,
+  },
+  confirmButton: {
+    backgroundColor: '#2a9d8f', // Verde
+  },
+  cancelButton: {
+    backgroundColor: '#e76f51', // Naranja/Rojo
+  },
+  buttonText: {
+    color: 'white',
+    fontWeight: 'bold',
+  },
+  // --- Estilos del Modal ---
+  modalCenteredView: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)', // Fondo oscuro semitransparente
+  },
+  modalView: {
+    margin: 20,
+    borderRadius: 20,
+    padding: 35,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+    width: '90%',
+  },
+  modalText: {
+    marginBottom: 15,
+    textAlign: 'center',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  modalInput: {
+    width: '100%',
+    height: 50,
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 20,
+  },
+  modalButtonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around', // Espacio entre botones
+    width: '100%',
+  }
 });
 
 export default DashboardScreen;

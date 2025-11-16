@@ -1,21 +1,19 @@
-// --- src/context/AuthContext.js ---
-
 import React, { createContext, useContext, useMemo, useReducer, useEffect } from 'react';
 import { Appearance } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { jwtDecode } from 'jwt-decode'; 
+import 'core-js/stable/atob'; 
 
-// 1. Creamos el Contexto
 const AuthContext = createContext();
 
-// 2. Definimos el reducer y el estado inicial
 const authReducer = (prevState, action) => {
   switch (action.type) {
     case 'RESTORE_TOKEN':
-      return { ...prevState, userToken: action.token, isLoading: false };
+      return { ...prevState, userToken: action.token, userRole: action.role, isLoading: false };
     case 'SIGN_IN':
-      return { ...prevState, userToken: action.token };
+      return { ...prevState, userToken: action.token, userRole: action.role };
     case 'SIGN_OUT':
-      return { ...prevState, userToken: null };
+      return { ...prevState, userToken: null, userRole: null };
     case 'SET_THEME':
       return { ...prevState, theme: action.theme };
   }
@@ -24,34 +22,38 @@ const authReducer = (prevState, action) => {
 const initialState = {
   isLoading: true,
   userToken: null,
+  userRole: null, 
   theme: Appearance.getColorScheme() || 'light'
 };
 
-// 3. Creamos el "Proveedor" (Provider)
-// Este es el componente que envolverá tu app
 export const AuthProvider = ({ children }) => {
   const [authState, dispatch] = useReducer(authReducer, initialState);
 
-  // Revisa el token al iniciar
   useEffect(() => {
     const bootstrapAsync = async () => {
       let userToken;
+      let userRole = null;
       try {
         userToken = await AsyncStorage.getItem('userToken');
-      } catch (e) { console.error('Error al restaurar el token:', e); }
-      dispatch({ type: 'RESTORE_TOKEN', token: userToken });
+        if (userToken) {
+          const decodedToken = jwtDecode(userToken);
+          userRole = decodedToken.role;
+        }
+      } catch (e) { console.error('Error al restaurar token:', e); }
+      dispatch({ type: 'RESTORE_TOKEN', token: userToken, role: userRole });
     };
     bootstrapAsync();
   }, []);
 
-  // Funciones que se compartirán (signIn, signOut, setTheme)
   const authContext = useMemo(
     () => ({
-      ...authState, // Pasa el estado (isLoading, userToken, theme)
+      ...authState, 
       signIn: async (token) => {
         try {
           await AsyncStorage.setItem('userToken', token);
-          dispatch({ type: 'SIGN_IN', token: token });
+          const decodedToken = jwtDecode(token);
+          const userRole = decodedToken.role;
+          dispatch({ type: 'SIGN_IN', token: token, role: userRole });
         } catch (e) { console.error('Error al guardar el token:', e); }
       },
       signOut: async () => {
@@ -74,8 +76,7 @@ export const AuthProvider = ({ children }) => {
   );
 };
 
-// 4. Creamos el Hook "useAuth"
-// Las pantallas usarán esto para acceder al contexto
+// 4. Exportamos el Hook "useAuth"
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (context === undefined) {
