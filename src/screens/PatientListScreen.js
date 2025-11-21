@@ -6,7 +6,7 @@ import {
   ActivityIndicator, TouchableOpacity, Alert, Button, TextInput
 } from 'react-native';
 import apiClient from '../api/client';
-import { useAuth } from '../context/AuthContext'; // ¡IMPORTACIÓN CORREGIDA!
+import { useAuth } from '../context/AuthContext'; // ¡Importación Correcta!
 import { useNavigation, useIsFocused, useTheme } from '@react-navigation/native';
 
 // Hook simple para "debouncing" (evitar llamar a la API en cada tecleo)
@@ -22,7 +22,6 @@ const useDebounce = (value, delay) => {
   }, [value, delay]);
   return debouncedValue;
 };
-
 
 const PatientListScreen = () => {
   const [patients, setPatients] = useState([]);
@@ -40,9 +39,7 @@ const PatientListScreen = () => {
   const { signOut } = useAuth();
   const navigation = useNavigation();
   const isFocused = useIsFocused();
-  
-  // --- ¡LÍNEA CORREGIDA! (Sin el guion bajo) ---
-  const { colors } = useTheme();
+  const { colors } = useTheme(); // Para el modo oscuro/claro
 
   // --- 1. Botón "+" en la cabecera ---
   useLayoutEffect(() => {

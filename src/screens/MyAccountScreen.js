@@ -6,7 +6,7 @@ import {
   ActivityIndicator, Alert, Switch, TextInput, Button 
 } from 'react-native';
 import apiClient from '../api/client';
-import { useAuth } from '../context/AuthContext'; 
+import { useAuth } from '../context/AuthContext'; // ¡IMPORTACIÓN CORREGIDA!
 import { useIsFocused, useTheme, useNavigation } from '@react-navigation/native';
 import { Picker } from '@react-native-picker/picker'; 
 
@@ -43,10 +43,12 @@ const MyAccountScreen = () => {
       ]);
       setUser(userResponse.data);
       setSettings(settingsResponse.data);
+      
+      // Sincroniza el tema de la app con la BBDD
       setTheme(settingsResponse.data.dark_mode ? 'dark' : 'light');
 
+      // Si el usuario es un paciente, carga sus datos detallados
       if (userResponse.data.patient_profile) {
-        // Usamos el endpoint de paciente para obtener TODOS los datos
         const patientResponse = await apiClient.get(`/patients/${userResponse.data.patient_profile.id}`);
         const patient = patientResponse.data;
         setPatientData(patient);
@@ -90,6 +92,7 @@ const MyAccountScreen = () => {
         emergency_contact_name: editEmergencyName,
         emergency_contact_phone: editEmergencyPhone,
         marital_status: editMaritalStatus
+        // Nota: No enviamos 'gender' ni 'birth_date'
       };
       
       await apiClient.put(`/patients/${patientData.id}`, updatedData);
@@ -118,6 +121,18 @@ const MyAccountScreen = () => {
     }
   };
 
+  // 4. Lógica de Logout (con confirmación)
+  const handleLogout = () => {
+    Alert.alert(
+        "Cerrar Sesión",
+        "¿Estás seguro de que quieres salir?",
+        [
+            { text: "Cancelar", style: "cancel" },
+            { text: "Salir", style: "destructive", onPress: signOut }
+        ]
+    );
+  };
+
   if (isLoading || !user || !settings) {
     return (
       <View style={[styles.centered, { backgroundColor: colors.background }]}>
@@ -135,7 +150,6 @@ const MyAccountScreen = () => {
   );
 
   return (
-    // Usamos ScrollView, ya que el KeyboardAvoidingView se movió a la pantalla de contraseña
     <ScrollView style={[styles.container, { backgroundColor: colors.background }]}>
       
       {/* --- Sección de Datos Personales --- */}
@@ -274,7 +288,11 @@ const MyAccountScreen = () => {
         )}
       </View>
 
-      <View style={{height: 50}} />
+      {/* --- ¡NUEVO! Botón de Cerrar Sesión --- */}
+      <View style={{ marginHorizontal: 15, marginVertical: 20, marginBottom: 50 }}>
+          <Button title="Cerrar Sesión" onPress={handleLogout} color="#e63946" />
+      </View>
+
     </ScrollView>
   );
 };

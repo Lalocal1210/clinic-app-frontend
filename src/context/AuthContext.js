@@ -3,13 +3,20 @@ import { Appearance } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { jwtDecode } from 'jwt-decode'; 
 import 'core-js/stable/atob'; 
+import apiClient from '../api/client'; // <--- 1. IMPORTANTE: Importamos el cliente API
 
 const AuthContext = createContext();
 
 const authReducer = (prevState, action) => {
   switch (action.type) {
     case 'RESTORE_TOKEN':
-      return { ...prevState, userToken: action.token, userRole: action.role, isLoading: false };
+      return { 
+        ...prevState, 
+        userToken: action.token, 
+        userRole: action.role, 
+        theme: action.theme, 
+        isLoading: false 
+      };
     case 'SIGN_IN':
       return { ...prevState, userToken: action.token, userRole: action.role };
     case 'SIGN_OUT':
@@ -23,7 +30,7 @@ const initialState = {
   isLoading: true,
   userToken: null,
   userRole: null, 
-  theme: Appearance.getColorScheme() || 'light'
+  theme: 'dark' 
 };
 
 export const AuthProvider = ({ children }) => {
@@ -33,15 +40,33 @@ export const AuthProvider = ({ children }) => {
     const bootstrapAsync = async () => {
       let userToken;
       let userRole = null;
+      let savedTheme = 'dark'; 
+
       try {
         userToken = await AsyncStorage.getItem('userToken');
         if (userToken) {
           const decodedToken = jwtDecode(userToken);
           userRole = decodedToken.role;
         }
-      } catch (e) { console.error('Error al restaurar token:', e); }
-      dispatch({ type: 'RESTORE_TOKEN', token: userToken, role: userRole });
+
+        const localTheme = await AsyncStorage.getItem('localTheme');
+        if (localTheme) {
+          savedTheme = localTheme;
+        } else {
+           const colorScheme = Appearance.getColorScheme();
+           if (colorScheme) savedTheme = colorScheme;
+        }
+
+      } catch (e) { console.error('Error bootstrap:', e); }
+
+      dispatch({ 
+        type: 'RESTORE_TOKEN', 
+        token: userToken, 
+        role: userRole,
+        theme: savedTheme 
+      });
     };
+
     bootstrapAsync();
   }, []);
 
@@ -50,20 +75,55 @@ export const AuthProvider = ({ children }) => {
       ...authState, 
       signIn: async (token) => {
         try {
+          // A. Guardamos token localmente
           await AsyncStorage.setItem('userToken', token);
           const decodedToken = jwtDecode(token);
           const userRole = decodedToken.role;
+          
+          // B. Actualizamos estado de sesión
           dispatch({ type: 'SIGN_IN', token: token, role: userRole });
-        } catch (e) { console.error('Error al guardar el token:', e); }
+
+          // C. LOGICA DE SINCRONIZACIÓN NUBE (¡LO QUE FALTABA!)
+          try {
+            // Llamamos al backend para ver qué prefiere este usuario
+            // (Como ya guardamos el token en AsyncStorage arriba, el interceptor de apiClient lo usará)
+            const response = await apiClient.get('/settings/me');
+            
+            // Asumimos que la API devuelve { dark_mode: true/false }
+            const cloudTheme = response.data.dark_mode ? 'dark' : 'light';
+            
+            // Si la preferencia de la nube es diferente a la actual, actualizamos
+            if (cloudTheme !== authState.theme) {
+                await AsyncStorage.setItem('localTheme', cloudTheme);
+                dispatch({ type: 'SET_THEME', theme: cloudTheme });
+            }
+          } catch (settingsError) {
+            console.log('No se pudieron sincronizar ajustes de la nube, manteniendo local.');
+          }
+
+        } catch (e) { console.error(e); }
       },
       signOut: async () => {
         try {
           await AsyncStorage.removeItem('userToken');
           dispatch({ type: 'SIGN_OUT' });
-        } catch (e) { console.error('Error al eliminar el token:', e); }
+        } catch (e) { console.error(e); }
       },
-      setTheme: (theme) => {
-        dispatch({ type: 'SET_THEME', theme: theme });
+      toggleTheme: async () => {
+        const newTheme = authState.theme === 'dark' ? 'light' : 'dark';
+        try {
+            await AsyncStorage.setItem('localTheme', newTheme);
+            dispatch({ type: 'SET_THEME', theme: newTheme });
+            
+            // Opcional: Si el usuario está logueado, podríamos intentar guardar esto en la nube aquí también
+            // pero tu vista 'MyAccount' ya maneja eso por su cuenta.
+        } catch (e) { console.error(e); }
+      },
+      setTheme: async (theme) => {
+         try {
+            await AsyncStorage.setItem('localTheme', theme);
+            dispatch({ type: 'SET_THEME', theme: theme });
+         } catch(e) { console.error(e); }
       }
     }),
     [authState]
@@ -76,7 +136,6 @@ export const AuthProvider = ({ children }) => {
   );
 };
 
-// 4. Exportamos el Hook "useAuth"
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (context === undefined) {
